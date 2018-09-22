@@ -1,4 +1,8 @@
 %- https://gis.stackexchange.com/questions/133625/checking-if-points-fall-within-polygon-shapefile
+
+* Zillow has a set of shapefiles for different neighborhoods of major US cities.
+* I wanted to check if certain buildings were present in certain neighborhoods using R:
+{r}
 library(rgeos)
 library(sp)
 library(rgdal)
