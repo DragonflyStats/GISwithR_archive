@@ -1,0 +1,100 @@
+---
+title: "SatModoVolume"
+author: "KevinOBrien"
+date: "21 September 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(sf)
+library(RColorBrewer)
+library(viridis)
+library(RSQLite)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(foreign)
+library(kableExtra)
+library(forcats)
+library(proj4)
+library(tidyr)
+library(knitr)
+library(readr)
+
+source("//IXFILESVR01/Public/Common/GIS/KevinOBrien/AdminData/script-5-IdiomaticFunctions.R")
+```
+
+
+```{r,echo=FALSE,include=FALSE}
+logs <- read_tsv("//IXFILESVR01/Public/Common/GIS/KevinOBrien/Projects/SatModoVolumeRecovery/DATA/GY11_H0081/GY11_H0081_harvester_logs.tsv")
+stems <- read_tsv("//IXFILESVR01/Public/Common/GIS/KevinOBrien/Projects/SatModoVolumeRecovery/DATA/GY11_H0081/GY11_H0081_harvester_stems.tsv",col_names=FALSE)
+names(stems) <- c("comms_server_id", "time", "X3", "volume", "X5", "Species", "lat", "lon")
+locations <- read_tsv("//IXFILESVR01/Public/Common/GIS/KevinOBrien/Projects/SatModoVolumeRecovery/DATA/GY11_H0081/GY11_H0081_harvester_locations.tsv")
+```
+
+```{r, echo=FALSE}
+thisHU <- st_read(paste("DATA/CoillteHU_data/","GY11_H0081",sep=""),layer=paste("GY11_H0081","_subs",sep="")  )
+#readOGR(paste("DATA/CoillteHU_data/","GY11_H0081_subs.shp",sep=""),layer=paste("GY11_H0081","_subs",sep=""))
+thisHU <- thisHU %>% select(HU_STRA_11,geometry)
+
+proj4string <- "+proj=tmerc +lat_0=53.5 +lon_0=-8 +k=0.99982 +x_0=600000 +y_0=750000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" 
+itm <- project((stems%>%select(lat,lon)), proj4string)
+stems <- data.frame(stems,x=itm$x,y=itm$y)
+```
+
+```{r, echo=FALSE}
+thisHU <- thisHU %>% rename(subcomp = HU_STRA_11)
+```
+
+```{r, echo=FALSE}
+geo_inside <- function(lon, lat, map, variable) {
+  
+  variable <- enquo(variable)
+  # slow if lots of lons and lats or big sf - needs improvement
+  pt <-
+    tibble::data_frame(x = lon,
+                       y = lat) %>%
+    st_as_sf(coords = c("x", "y"), crs = st_crs(map))
+  pt %>% st_join(map) %>% pull(!!variable)
+  
+}
+```
+```{r, echo=FALSE,include=FALSE}
+stems <-
+  stems %>%
+  mutate(subcomp = geo_inside(x, y, thisHU, subcomp)) %>%
+  mutate(subcomp = fct_explicit_na(subcomp,"outside"))
+```
+
+```{r, echo=FALSE}
+table(stems$subcomp) %>% addmargins
+```
+
+```{r, echo=FALSE}
+ggplot(thisHU) + geom_sf()
+```
+
+```{r, echo=FALSE}
+ggplot(thisHU) + geom_sf() + geom_point(data=stems,aes(x,y))
+```
+
+```{r, echo=FALSE}
+ggplot(thisHU) + geom_sf() + geom_point(data=stems,aes(x,y,col=subcomp))
+
+```
+### Total Volume Breakdown in HU
+```{r, echo=FALSE}
+logs %>% left_join(stems %>% select(comms_server_id,subcomp),by = "comms_server_id") %>%
+  group_by(subcomp, name)%>% 
+  summarize(Volume = sum(volume)) %>% 
+  spread(name,Volume,fill=0) %>%
+  as.data.frame()%>%
+  set_colnames(c("subcomp","Pallet1","Pallet2","Pallet3","Pallet4","Pulp","LargeSawLog","Stake","HarvestLoss")) %>%
+  mutate(SmallSawLog = Pallet1 + Pallet2 + Pallet3 + Pallet4) %>%
+  select(-contains("Pall"))%>%
+  select(subcomp,contains("Log"),Pulp,Stake,HarvestLoss)%>%
+  addColTotals() %>%
+  kable() %>%
+  kable_styling(full_width = FALSE,bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+```
